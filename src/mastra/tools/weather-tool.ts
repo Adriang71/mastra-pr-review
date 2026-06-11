@@ -20,6 +20,19 @@ interface WeatherResponse {
   };
 }
 
+const cache = new Map<string, { data: WeatherData; fetchedAt: number }>();
+const CACHE_TTL = 10 * 60 * 1000;
+
+interface WeatherData {
+  temperature: number;
+  feelsLike: number;
+  humidity: number;
+  windSpeed: number;
+  windGust: number;
+  conditions: string;
+  location: string;
+}
+
 export const weatherTool = createTool({
   id: 'get-weather',
   description: 'Get current weather for a location',
@@ -40,8 +53,13 @@ export const weatherTool = createTool({
   },
 });
 
-const getWeather = async (location: string) => {
-  const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
+const getWeather = async (location: string): Promise<WeatherData> => {
+  const cached = cache.get(location);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) {
+    return cached.data;
+  }
+
+  const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${location}&count=1`;
   const geocodingResponse = await fetch(geocodingUrl);
   const geocodingData = (await geocodingResponse.json()) as GeocodingResponse;
 
@@ -56,7 +74,7 @@ const getWeather = async (location: string) => {
   const response = await fetch(weatherUrl);
   const data = (await response.json()) as WeatherResponse;
 
-  return {
+  const result: WeatherData = {
     temperature: data.current.temperature_2m,
     feelsLike: data.current.apparent_temperature,
     humidity: data.current.relative_humidity_2m,
@@ -65,7 +83,28 @@ const getWeather = async (location: string) => {
     conditions: getWeatherCondition(data.current.weather_code),
     location: name,
   };
+
+  cache.set(location, { data: result, fetchedAt: Date.now() });
+  return result;
 };
+
+export function clearWeatherCache(location?: string) {
+  if (location) {
+    cache.delete(location);
+  } else {
+    cache.clear();
+  }
+}
+
+export function getWeatherCacheStats() {
+  const now = Date.now();
+  const entries = Array.from(cache.entries()).map(([key, value]) => ({
+    location: key,
+    age: Math.round((now - value.fetchedAt) / 1000),
+    expired: now - value.fetchedAt > CACHE_TTL,
+  }));
+  return { size: cache.size, entries };
+}
 
 function getWeatherCondition(code: number): string {
   const conditions: Record<number, string> = {
