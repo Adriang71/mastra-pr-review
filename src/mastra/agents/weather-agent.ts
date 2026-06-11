@@ -1,6 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
-import { weatherTool } from '../tools/weather-tool';
+import { weatherTool, forecastTool } from '../tools/weather-tool';
 import { scorers } from '../scorers/weather-scorer';
 
 export const weatherAgent = new Agent({
@@ -19,7 +19,7 @@ Your primary function is to help users get weather details for specific location
 
 Use the weatherTool to fetch current weather data.`,
   model: 'groq/llama-3.3-70b-versatile',
-  tools: { weatherTool },
+  tools: { weatherTool, forecastTool },
   scorers: {
     toolCallAppropriateness: {
       scorer: scorers.toolCallAppropriatenessScorer,
