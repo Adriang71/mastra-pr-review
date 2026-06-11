@@ -19,6 +19,15 @@ interface WeatherResponse {
     weather_code: number;
   };
 }
+interface ForecastResponse {
+  daily: {
+    time: string[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    weather_code: number[];
+    precipitation_sum: number[];
+  };
+}
 
 export const weatherTool = createTool({
   id: 'get-weather',
@@ -39,6 +48,37 @@ export const weatherTool = createTool({
     return await getWeather(inputData.location);
   },
 });
+
+export const forecastTool = createTool({
+  id: 'get-forecast',
+  description: 'Get a multi-day weather forecast for a location',
+  inputSchema: z.object({
+    location: z.string().describe('City name'),
+    days: z.number().describe('Number of forecast days'),
+  }),
+  outputSchema: z.object({
+    location: z.string(),
+    forecast: z.array(
+      z.object({
+        date: z.string(),
+        maxTemp: z.number(),
+        minTemp: z.number(),
+        conditions: z.string(),
+        precipitation: z.number(),
+      })
+    ),
+  }),
+  execute: async (inputData) => {
+    return await getForecast(inputData.location, inputData.days);
+  },
+});
+
+const geocode = async (location: string) => {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
+  const res = await fetch(url);
+  const data = (await res.json()) as GeocodingResponse;
+  return data.results[0];
+};
 
 const getWeather = async (location: string) => {
   const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
@@ -65,6 +105,38 @@ const getWeather = async (location: string) => {
     conditions: getWeatherCondition(data.current.weather_code),
     location: name,
   };
+};
+
+const getForecast = async (location: string, days: number) => {
+  const place = await geocode(location);
+
+  const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum&forecast_days=${days}&timezone=auto`;
+
+  const response = await fetch(forecastUrl);
+  const data = (await response.json()) as ForecastResponse;
+
+  return {
+    location: place.name,
+    forecast: data.daily.time.map((date, i) => ({
+      date,
+      maxTemp: data.daily.temperature_2m_max[i],
+      minTemp: data.daily.temperature_2m_min[i],
+      conditions: getWeatherCondition(data.daily.weather_code[i]),
+      precipitation: data.daily.precipitation_sum[i],
+    })),
+  };
+};
+
+const weatherCache = new Map<string, { data: Awaited<ReturnType<typeof getWeather>>; ts: number }>();
+
+export const getCachedWeather = async (location: string) => {
+  const cached = weatherCache.get(location);
+  if (cached && Date.now() - cached.ts < 600000) {
+    return cached.data;
+  }
+  const data = await getWeather(location);
+  weatherCache.set(location, { data, ts: Date.now() });
+  return data;
 };
 
 function getWeatherCondition(code: number): string {
