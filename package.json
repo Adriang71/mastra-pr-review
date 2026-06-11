@@ -20,10 +20,12 @@
     "@mastra/core": "^1.41.0",
     "@mastra/duckdb": "^1.4.1",
     "@mastra/evals": "^1.2.4",
+    "@mastra/fastembed": "^1.1.2",
     "@mastra/libsql": "^1.12.1",
     "@mastra/loggers": "^1.1.2",
     "@mastra/memory": "^1.20.2",
     "@mastra/observability": "^1.14.1",
+    "@mastra/rag": "^2.2.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
