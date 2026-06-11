@@ -1,6 +1,42 @@
 import { readFileSync } from 'fs';
 import { reviewAgent, reviewSchema, type ReviewOutput } from '../../src/mastra/agents/review-agent.ts';
 
+// Returns a Map<filePath, Set<lineNumber>> of lines present in the diff patch.
+// Only lines reachable via +/context lines within @@ hunks are valid for GitHub review comments.
+function parseDiffValidLines(diff: string): Map<string, Set<number>> {
+  const validLines = new Map<string, Set<number>>();
+  let currentFile: string | null = null;
+  let newLineNumber = 0;
+
+  for (const line of diff.split('\n')) {
+    const fileMatch = line.match(/^\+\+\+ b\/(.+)/);
+    if (fileMatch) {
+      currentFile = fileMatch[1];
+      if (!validLines.has(currentFile)) validLines.set(currentFile, new Set());
+      continue;
+    }
+
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      newLineNumber = parseInt(hunkMatch[1], 10) - 1;
+      continue;
+    }
+
+    if (!currentFile) continue;
+
+    if (line.startsWith('+')) {
+      newLineNumber++;
+      validLines.get(currentFile)!.add(newLineNumber);
+    } else if (line.startsWith(' ')) {
+      newLineNumber++;
+      validLines.get(currentFile)!.add(newLineNumber);
+    }
+    // lines starting with '-' don't exist in the new file — skip
+  }
+
+  return validLines;
+}
+
 const MAX_DIFF_BYTES = 100_000;
 const REVIEW_MARKER = '<!-- ai-review -->';
 const GITHUB_API = 'https://api.github.com';
@@ -52,11 +88,13 @@ async function upsertSummaryComment(body: string): Promise<void> {
   }
 }
 
-async function postReviewComments(review: ReviewOutput): Promise<void> {
+async function postReviewComments(review: ReviewOutput, diff: string): Promise<void> {
   if (review.comments.length === 0) {
     console.log('No inline comments to post');
     return;
   }
+
+  const validLines = parseDiffValidLines(diff);
 
   const severityLabel: Record<string, string> = {
     issue: '🔴 **Issue**',
@@ -64,73 +102,43 @@ async function postReviewComments(review: ReviewOutput): Promise<void> {
     nitpick: '⚪ **Nitpick**',
   };
 
-  const comments = review.comments.map((c) => ({
-    path: c.file,
-    line: c.line,
-    side: 'RIGHT' as const,
-    body: `${severityLabel[c.severity] ?? c.severity}\n\n${c.comment}`,
-  }));
+  const comments = review.comments
+    .filter((c) => {
+      const fileLines = validLines.get(c.file);
+      if (!fileLines?.has(c.line)) {
+        console.warn(`Skipping comment on ${c.file}:${c.line} — line not in diff patch`);
+        return false;
+      }
+      return true;
+    })
+    .map((c) => ({
+      path: c.file,
+      line: c.line,
+      side: 'RIGHT' as const,
+      body: `${severityLabel[c.severity] ?? c.severity}\n\n${c.comment}`,
+    }));
+
+  if (comments.length === 0) {
+    console.log('No inline comments within diff lines to post');
+    return;
+  }
 
   const res = await ghFetch(`/repos/${REPO}/pulls/${PR_NUMBER}/reviews`, {
     method: 'POST',
-    body: JSON.stringify({
-      commit_id: HEAD_SHA,
-      event: 'COMMENT',
-      comments,
-    }),
+    body: JSON.stringify({ commit_id: HEAD_SHA, event: 'COMMENT', comments }),
   });
 
   if (!res.ok) {
-    const errorText = await res.text();
-    // If the batch fails (e.g. one invalid line), fall back to posting comments one by one
-    console.warn(`Batch review failed (${res.status}), retrying comments individually...`);
-    await postReviewCommentsIndividually(review);
+    console.warn(`Batch review failed (${res.status}): ${await res.text()}`);
     return;
   }
 
   console.log(`Posted review with ${comments.length} inline comment(s)`);
 }
 
-async function postReviewCommentsIndividually(review: ReviewOutput): Promise<void> {
-  const severityLabel: Record<string, string> = {
-    issue: '🔴 **Issue**',
-    suggestion: '🟡 **Suggestion**',
-    nitpick: '⚪ **Nitpick**',
-  };
-
-  let posted = 0;
-  for (const c of review.comments) {
-    try {
-      const res = await ghFetch(`/repos/${REPO}/pulls/${PR_NUMBER}/reviews`, {
-        method: 'POST',
-        body: JSON.stringify({
-          commit_id: HEAD_SHA,
-          event: 'COMMENT',
-          comments: [
-            {
-              path: c.file,
-              line: c.line,
-              side: 'RIGHT',
-              body: `${severityLabel[c.severity] ?? c.severity}\n\n${c.comment}`,
-            },
-          ],
-        }),
-      });
-      if (res.ok) {
-        posted++;
-      } else {
-        console.warn(`Skipped comment on ${c.file}:${c.line} — GitHub rejected it (${res.status})`);
-      }
-    } catch (err) {
-      console.warn(`Failed to post comment on ${c.file}:${c.line}:`, err);
-    }
-  }
-  console.log(`Posted ${posted}/${review.comments.length} inline comment(s) individually`);
-}
-
 async function main(): Promise<void> {
   // Read diff
-  let diff: string;
+  let diff = '';
   try {
     diff = readFileSync('/tmp/pr.diff', 'utf8');
   } catch {
@@ -186,7 +194,7 @@ async function main(): Promise<void> {
   const summaryBody = `${REVIEW_MARKER}\n### 🤖 AI Code Review\n\n${review!.summary}${commentsNote}${truncatedNote}`;
 
   await upsertSummaryComment(summaryBody);
-  await postReviewComments(review!);
+  await postReviewComments(review!, diff);
 }
 
 await main();
