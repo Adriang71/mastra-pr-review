@@ -19,6 +19,39 @@ interface WeatherResponse {
     weather_code: number;
   };
 }
+interface ForecastResponse {
+  daily: {
+    time: string[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    weather_code: number[];
+    precipitation_sum: number[];
+  };
+}
+
+export const forecastTool = createTool({
+  id: 'get-forecast',
+  description: 'Get a multi-day weather forecast for a location',
+  inputSchema: z.object({
+    location: z.string().describe('City name'),
+    days: z.number().describe('Number of days to forecast (1-7)'),
+  }),
+  outputSchema: z.object({
+    location: z.string(),
+    forecast: z.array(
+      z.object({
+        date: z.string(),
+        maxTemp: z.number(),
+        minTemp: z.number(),
+        conditions: z.string(),
+        precipitation: z.number(),
+      })
+    ),
+  }),
+  execute: async (inputData) => {
+    return await getForecast(inputData.location, inputData.days);
+  },
+});
 
 export const weatherTool = createTool({
   id: 'get-weather',
@@ -64,6 +97,30 @@ const getWeather = async (location: string) => {
     windGust: data.current.wind_gusts_10m,
     conditions: getWeatherCondition(data.current.weather_code),
     location: name,
+  };
+};
+
+const getForecast = async (location: string, days: number) => {
+  const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
+  const geocodingResponse = await fetch(geocodingUrl);
+  const geocodingData = (await geocodingResponse.json()) as GeocodingResponse;
+
+  const { latitude, longitude, name } = geocodingData.results[0];
+
+  const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum&forecast_days=${days}&timezone=auto`;
+
+  const response = await fetch(forecastUrl);
+  const data = (await response.json()) as ForecastResponse;
+
+  return {
+    location: name,
+    forecast: data.daily.time.map((date, i) => ({
+      date,
+      maxTemp: data.daily.temperature_2m_max[i],
+      minTemp: data.daily.temperature_2m_min[i],
+      conditions: getWeatherCondition(data.daily.weather_code[i]),
+      precipitation: data.daily.precipitation_sum[i],
+    })),
   };
 };
 
