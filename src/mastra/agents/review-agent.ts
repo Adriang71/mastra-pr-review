@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 
 export const reviewSchema = z.object({
-  summary: z.string().describe('1-3 sentence PR summary in markdown'),
+  summary: z.string().default('').describe('1-3 sentence PR summary in markdown'),
   comments: z.array(
     z.object({
       file: z.string().describe('File path exactly as shown in the diff (after +++ b/)'),
@@ -40,6 +40,9 @@ For each comment provide:
 - "severity": "issue" (must fix before merge), "suggestion" (worth considering), "nitpick" (very minor)
 - "comment": specific, actionable feedback — include the fix, not just the problem
 
-If there are no meaningful issues to report, return an empty "comments" array. A review with zero comments is valid and preferred over noise.`,
+If there are no meaningful issues to report, return an empty "comments" array. A review with zero comments is valid and preferred over noise.
+
+Always return valid JSON in exactly this structure, with no markdown fences or extra text:
+{"summary":"...","comments":[{"file":"...","line":1,"severity":"issue","comment":"..."}]}`,
   model: 'groq/llama-3.3-70b-versatile',
 });
