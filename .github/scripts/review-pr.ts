@@ -151,31 +151,22 @@ async function main(): Promise<void> {
   }
 
   // Call agent
+  // llama-3.3-70b-versatile supports json_object but NOT json_schema,
+  // so we skip structuredOutput (which sends json_schema) and parse manually.
   let review: ReviewOutput;
   try {
     const result = await reviewAgent.generate(
       `Please review the following git diff and return a structured JSON code review:\n\n${diff}`,
       {
-        structuredOutput: { schema: reviewSchema },
         providerOptions: {
           groq: { response_format: { type: 'json_object' } },
         },
       }
     );
 
-    if (result.object) {
-      review = result.object as ReviewOutput;
-    } else {
-      // fallback: try parsing raw text
-      try {
-        review = reviewSchema.parse(JSON.parse(result.text));
-      } catch {
-        console.error('Agent returned unparseable output:', result.text);
-        process.exit(0); // don't fail the workflow
-      }
-    }
+    review = reviewSchema.parse(JSON.parse(result.text));
   } catch (err) {
-    console.error('Agent call failed:', err);
+    console.error('Agent call failed or returned invalid JSON:', err);
     process.exit(0); // don't fail the workflow on inference errors
   }
 
