@@ -31,6 +31,7 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "mastra": "^1.12.2",
+    "tsx": "^4.19.4",
     "typescript": "^6.0.3"
   }
 }

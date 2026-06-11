@@ -9,6 +9,7 @@ import { weatherWorkflow } from './workflows/weather-workflow';
 import { weatherAgent } from './agents/weather-agent';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
 import { researchAgent } from './agents/research-agent';
+import { reviewAgent } from './agents/review-agent';
 
 const researchVectors = new LibSQLVector({
   id: 'researchVectors',
@@ -17,7 +18,7 @@ const researchVectors = new LibSQLVector({
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
-  agents: { weatherAgent, researchAgent },
+  agents: { weatherAgent, researchAgent, reviewAgent },
   vectors: { researchVectors },
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   storage: new MastraCompositeStore({
