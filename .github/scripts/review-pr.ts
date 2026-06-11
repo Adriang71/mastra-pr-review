@@ -164,7 +164,9 @@ async function main(): Promise<void> {
       }
     );
 
-    review = reviewSchema.parse(JSON.parse(result.text));
+    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error(`No JSON object in response: ${result.text.slice(0, 200)}`);
+    review = reviewSchema.parse(JSON.parse(jsonMatch[0]));
   } catch (err) {
     console.error('Agent call failed or returned invalid JSON:', err);
     process.exit(0); // don't fail the workflow on inference errors
