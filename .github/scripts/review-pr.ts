@@ -1,6 +1,30 @@
 import { readFileSync } from 'fs';
 import { reviewAgent, reviewSchema, type ReviewOutput } from '../../src/mastra/agents/review-agent.ts';
 
+
+
+const MAX_DIFF_BYTES = 100_000;
+const REVIEW_MARKER = '<!-- ai-review -->';
+const GITHUB_API = 'https://api.github.com';
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
+const GROQ_API_KEY = process.env.GROQ_API_KEY!;
+const PR_NUMBER = process.env.PR_NUMBER!;
+const REPO = process.env.REPO!;
+const HEAD_SHA = process.env.HEAD_SHA!;
+
+if (!GITHUB_TOKEN || !GROQ_API_KEY || !PR_NUMBER || !REPO || !HEAD_SHA) {
+  console.error('Missing required environment variables: GITHUB_TOKEN, GROQ_API_KEY, PR_NUMBER, REPO, HEAD_SHA');
+  process.exit(1);
+}
+
+const headers = {
+  Authorization: `Bearer ${GITHUB_TOKEN}`,
+  Accept: 'application/vnd.github+json',
+  'X-GitHub-Api-Version': '2022-11-28',
+  'Content-Type': 'application/json',
+};
+
 // Returns a Map<filePath, Set<lineNumber>> of lines present in the diff patch.
 // Only lines reachable via +/context lines within @@ hunks are valid for GitHub review comments.
 function parseDiffValidLines(diff: string): Map<string, Set<number>> {
@@ -36,28 +60,6 @@ function parseDiffValidLines(diff: string): Map<string, Set<number>> {
 
   return validLines;
 }
-
-const MAX_DIFF_BYTES = 100_000;
-const REVIEW_MARKER = '<!-- ai-review -->';
-const GITHUB_API = 'https://api.github.com';
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
-const GROQ_API_KEY = process.env.GROQ_API_KEY!;
-const PR_NUMBER = process.env.PR_NUMBER!;
-const REPO = process.env.REPO!;
-const HEAD_SHA = process.env.HEAD_SHA!;
-
-if (!GITHUB_TOKEN || !GROQ_API_KEY || !PR_NUMBER || !REPO || !HEAD_SHA) {
-  console.error('Missing required environment variables: GITHUB_TOKEN, GROQ_API_KEY, PR_NUMBER, REPO, HEAD_SHA');
-  process.exit(1);
-}
-
-const headers = {
-  Authorization: `Bearer ${GITHUB_TOKEN}`,
-  Accept: 'application/vnd.github+json',
-  'X-GitHub-Api-Version': '2022-11-28',
-  'Content-Type': 'application/json',
-};
 
 async function ghFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${GITHUB_API}${path}`, { ...init, headers: { ...headers, ...init?.headers } });
